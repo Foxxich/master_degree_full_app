@@ -1,6 +1,9 @@
 import os
 import shutil
 import time
+from matplotlib import pyplot as plt
+import matplotlib
+matplotlib.use('Agg') 
 import pandas as pd
 from django.shortcuts import render
 from django.conf import settings
@@ -16,7 +19,12 @@ from asgiref.sync import async_to_sync
 
 import sys
 
+# Add the path for the 'mlapp/ml' module
 sys.path.append(os.path.join(os.path.dirname(os.path.dirname(__file__)), 'mlapp', 'ml'))
+
+# Import the necessary functions from your social_network.py
+from .ml.social_network import create_dynamic_virtual_users, create_social_network, simulate_information_spread, \
+    plot_simulation_results, plot_article_read_share_frequency, plot_daily_infections, plot_cumulative_infections
 
 # Initialize logging
 logger = logging.getLogger(__name__)
@@ -65,6 +73,7 @@ def upload_file(request):
         plot_paths = []
 
         if algorithm == 'all':
+            results = []
             for algo in algorithms:
                 log_message(f"Starting fake news detection process with {algo} on {dataset}...")
 
@@ -111,6 +120,30 @@ def upload_file(request):
                 roc_curve_path = Predictor.plot_roc_curve(y_true, y_proba, plot_dir, f'{algo}_{params_str}_{dataset}')
 
                 plot_paths.extend(filter(None, [confusion_matrix_path, precision_recall_curve_path, roc_curve_path]))
+
+                metrics_df = pd.read_csv(metrics_path)
+                results.append((algo, metrics_df))
+
+            # Plot the comparison of algorithms
+            comparison_df = pd.DataFrame({
+                'Algorithm': [res[0] for res in results],
+                'Accuracy': [res[1]['accuracy'][0] for res in results],
+                'Precision': [res[1]['precision'][0] for res in results],
+                'Recall': [res[1]['recall'][0] for res in results],
+                'F1 Score': [res[1]['f1_score'][0] for res in results],
+                'ROC AUC': [res[1]['roc_auc'][0] for res in results],
+                'Training Time': [res[1]['training_time'][0] for res in results],
+                'Prediction Time': [res[1]['prediction_time'][0] for res in results]
+            })
+
+            comparison_df.plot(x='Algorithm', kind='bar', figsize=(10, 8))
+            plt.title('Algorithm Performance Comparison')
+            plt.ylabel('Scores')
+            plt.xticks(rotation=45)
+            comparison_plot_path = os.path.join(plot_dir, 'comparison_plot.png')
+            plt.savefig(comparison_plot_path)
+            plt.close()
+            plot_paths.append(comparison_plot_path)
 
             log_message("All algorithms have finished running.")
         else:
@@ -162,9 +195,22 @@ def upload_file(request):
 
             log_message("Metrics and plots generated successfully.")
 
+        # Social network simulation integration
+        log_message("Starting social network simulation...")
+        interests = ["politics", "technology", "health", "entertainment", "sports"]
+        num_dynamic_users = len(X_train)  # Adjust the number of users
+        dynamic_users = create_dynamic_virtual_users(num_dynamic_users, interests)
+        social_network = create_social_network(dynamic_users)
+        simulation_results = simulate_information_spread(dynamic_users, social_network, pd.read_csv(train_path))
+
+        # Plot and save simulation results
+        plot_simulation_results(simulation_results, num_dynamic_users, plot_dir)
+        plot_article_read_share_frequency(simulation_results, plot_dir)
+        plot_daily_infections(simulation_results, plot_dir)
+        plot_cumulative_infections(simulation_results, plot_dir)
+
         # Fetch all images from media/plots directory for the results page
-        plots_dir = os.path.join(settings.MEDIA_ROOT, 'plots')
-        images = [f for f in os.listdir(plots_dir) if os.path.isfile(os.path.join(plots_dir, f))]
+        images = [f for f in os.listdir(plot_dir) if os.path.isfile(os.path.join(plot_dir, f))]
 
         return render(request, 'results.html', {
             'message': 'Algorithm has been processed successfully.' if algorithm != 'all' else 'All algorithms have been processed successfully.',

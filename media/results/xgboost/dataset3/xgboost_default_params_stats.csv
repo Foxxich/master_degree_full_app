@@ -1,0 +1,2 @@
+accuracy,precision,recall,f1_score,roc_auc,training_time,prediction_time
+0.61,0.5733333333333334,0.86,0.688,0.72,0.788996696472168,0.07200002670288086
